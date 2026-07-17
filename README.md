@@ -1,9 +1,9 @@
 # OutLoud Deck
 
-OutLoud Deck is a public speaking practice app centered on a smarter random
-topic generator. Instead of a slot-machine spin, it presents a three-card deck,
-asks the speaker to commit, and keeps a short session trail so practice feels
-deliberate.
+OutLoud Deck is a local-first public speaking practice app centered on a
+smarter random topic generator. Instead of a slot-machine spin, it presents a
+three-card deck, asks the speaker to commit, and keeps a short session trail so
+practice feels deliberate.
 
 ## Current V1 Focus
 
@@ -26,8 +26,10 @@ npm run lint
 npm test
 ```
 
-`npm test` runs the production build, server-render checks, and topic-engine
-tests.
+`npm run dev` serves the app from local Vite at `http://127.0.0.1:5173/`.
+There is no external hosting config in this project.
+
+`npm test` runs the local production build and topic-engine tests.
 
 ## Project Shape
 

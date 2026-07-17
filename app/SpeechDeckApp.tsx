@@ -17,6 +17,7 @@ import {
   TimerReset,
   Waves,
 } from "lucide-react";
+import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { TOPICS, type SpeechTopic } from "./data/topics";
 import {
@@ -265,7 +266,7 @@ export function SpeechDeckApp() {
                     data-locked={isLocked ? "true" : "false"}
                     key={topic.id}
                     onClick={() => selectTopic(topic)}
-                    style={{ "--stack-index": index } as React.CSSProperties}
+                    style={{ "--stack-index": index } as CSSProperties}
                     type="button"
                   >
                     <span className="topic-card-topline">
@@ -322,7 +323,7 @@ export function SpeechDeckApp() {
               <div className="timer-module">
                 <div
                   className="timer-ring"
-                  style={{ "--timer-progress": progress } as React.CSSProperties}
+                  style={{ "--timer-progress": progress } as CSSProperties}
                   aria-label={`${formatTime(session.timerSeconds)} remaining`}
                 >
                   <span>{formatTime(session.timerSeconds)}</span>

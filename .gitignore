@@ -13,10 +13,11 @@
 # testing
 /coverage
 
-# next.js
+# build outputs
 /.next/
 /.vinext/
 /out/
+/dist/
 
 # misc
 .DS_Store
@@ -36,7 +37,6 @@ yarn-error.log*
 
 # typescript
 next-env.d.ts
-/dist/
 /.wrangler/
 /outputs/
 /work/

@@ -71,19 +71,19 @@ type Analysis = {
 
 const DEFAULT_SECONDS = 60;
 const MAX_SPINS = 5;
-const SPIN_DURATION_MS = 4700;
+const SPIN_DURATION_MS = 3600;
 const WHEEL_CATEGORIES: Array<{
   category: TopicCategory;
   label: string;
 }> = [
   { category: "Culture", label: "Culture" },
   { category: "Music", label: "Music" },
-  { category: "Identity", label: "ID" },
+  { category: "Identity", label: "Identity" },
   { category: "Work", label: "Work" },
   { category: "Opinion", label: "Opinion" },
   { category: "Abstract", label: "Abstract" },
   { category: "Story", label: "Story" },
-  { category: "Community", label: "Comm" },
+  { category: "Community", label: "Community" },
 ];
 const WHEEL_POCKETS = [
   WHEEL_CATEGORIES[0],
@@ -98,6 +98,10 @@ const WHEEL_POCKETS = [
   WHEEL_CATEGORIES[1],
   WHEEL_CATEGORIES[7],
   WHEEL_CATEGORIES[5],
+  WHEEL_CATEGORIES[0],
+  WHEEL_CATEGORIES[3],
+  WHEEL_CATEGORIES[4],
+  WHEEL_CATEGORIES[2],
 ];
 const FILLERS = [
   "um",
@@ -139,9 +143,9 @@ function getCategoryIndex(category: TopicCategory) {
 function getTargetBallAngle(targetIndex: number) {
   const sliceAngle = 360 / WHEEL_POCKETS.length;
   const sliceCenter = targetIndex * sliceAngle + sliceAngle / 2;
-  const entryWobble = (Math.random() - 0.5) * (sliceAngle * 0.45);
+  const entryWobble = (Math.random() - 0.5) * (sliceAngle * 0.28);
 
-  return 360 * 8 + sliceCenter + entryWobble;
+  return 360 * 7 + sliceCenter + entryWobble;
 }
 
 function countWords(text: string) {
@@ -367,6 +371,7 @@ export function SpeechDeckApp() {
   const [pool, setPool] = useState<TopicPoolState>(initialDraw.state);
   const [activeTopic, setActiveTopic] = useState<SpeechTopic | null>(null);
   const [hasRolled, setHasRolled] = useState(false);
+  const [wheelOpen, setWheelOpen] = useState(false);
   const [wheel, setWheel] = useState<WheelState>({
     ballRotation: 0,
     ballRadius: 0.39,
@@ -440,7 +445,7 @@ export function SpeechDeckApp() {
     setWheel((current) => ({
       ...current,
       ballRotation,
-      ballRadius: 0.39,
+      ballRadius: 0.265,
       selectedCategory: chosenTopic.category,
       spinning: true,
       spinId: current.spinId + 1,
@@ -449,21 +454,13 @@ export function SpeechDeckApp() {
     setSpinsLeft((current) => Math.max(0, current - 1));
 
     window.setTimeout(() => {
-      setWheel((current) => ({
-        ...current,
-        ballRadius: 0.31,
-        ballRotation: ballRotation + 120,
-      }));
-    }, 2450);
-
-    window.setTimeout(() => {
       setPool(recordLockedTopic(result.state, chosenTopic));
       setActiveTopic(chosenTopic);
       setRemaining(duration);
       setWheel((current) => ({
         ...current,
-        ballRadius: 0.26,
-        ballRotation: ballRotation + 172,
+        ballRadius: 0.265,
+        ballRotation,
         spinning: false,
       }));
       playCue("land", muted);
@@ -592,15 +589,18 @@ export function SpeechDeckApp() {
           duration={duration}
           hasRolled={hasRolled}
           muted={muted}
+          onCloseWheel={() => setWheelOpen(false)}
           onDurationChange={(nextDuration) => {
             setDuration(nextDuration);
             setRemaining(nextDuration);
           }}
+          onOpenWheel={() => setWheelOpen(true)}
           onSpin={spinWheel}
           onStart={startPractice}
           onToggleMute={() => setMuted((current) => !current)}
           spinsLeft={spinsLeft}
           wheel={wheel}
+          wheelOpen={wheelOpen}
         />
       ) : null}
 
@@ -653,72 +653,121 @@ function RollScreen({
   duration,
   hasRolled,
   muted,
+  onCloseWheel,
   onDurationChange,
+  onOpenWheel,
   onSpin,
   onStart,
   onToggleMute,
   spinsLeft,
   wheel,
+  wheelOpen,
 }: {
   activeTopic: SpeechTopic | null;
   duration: number;
   hasRolled: boolean;
   muted: boolean;
+  onCloseWheel: () => void;
   onDurationChange: (duration: number) => void;
+  onOpenWheel: () => void;
   onSpin: () => void;
   onStart: () => void;
   onToggleMute: () => void;
   spinsLeft: number;
   wheel: WheelState;
+  wheelOpen: boolean;
 }) {
   return (
-    <section className="welcome-screen spin-screen" aria-label="Topic spin">
-      <header className="spin-chrome">
-        <button className="table-link" type="button">
-          Offscript
-        </button>
-        <label className="mini-pill table-setting">
-          Time
-          <select
-            value={duration}
-            onChange={(event) => onDurationChange(Number(event.target.value))}
-          >
-            <option value={30}>0:30</option>
-            <option value={60}>1:00</option>
-            <option value={90}>1:30</option>
-            <option value={120}>2:00</option>
-          </select>
-        </label>
-        <button className="table-link" type="button" onClick={onToggleMute}>
-          {muted ? "Sound off" : "Sound on"}
-        </button>
+    <section className="welcome-screen" aria-label="Offscript topic practice">
+      <header className="top-bar">
+        <span className="mode-label">Random Topics</span>
       </header>
 
-      <RouletteWheel
-        onSpin={onSpin}
-        spinsLeft={spinsLeft}
-        wheel={wheel}
-      />
-
-      <div className="spin-actions">
-        <button
-          className="primary-pill"
-          disabled={wheel.spinning || spinsLeft <= 0}
-          type="button"
-          onClick={onSpin}
-        >
-          {wheel.spinning ? "Ball in motion" : hasRolled ? "Spin again" : "Spin for topic"}
+      <section className="landing-grid">
+        <div className="landing-copy">
+          <p className="wordmark">Offscript</p>
+          <h1>Walk in with foggy thoughts. Walk out clearer.</h1>
+          <p>
+            Spin for an unrehearsed prompt, set a speaking window, then review
+            the exact words you used, the fillers you leaned on, and the rhythm
+            of your answer.
+          </p>
+          <div className="main-actions">
+            <button className="primary-pill" type="button" onClick={onOpenWheel}>
+              Open topic wheel
+            </button>
+            {activeTopic ? (
+              <button className="secondary-pill" type="button" onClick={onStart}>
+                Start timer →
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <button className="wheel-preview" type="button" onClick={onOpenWheel}>
+          <span>Topic wheel</span>
+          <strong>{activeTopic ? activeTopic.category : "Ready"}</strong>
+          <small>{activeTopic ? activeTopic.prompt : "Click to enter the table"}</small>
         </button>
-      </div>
+      </section>
 
-      {hasRolled && activeTopic && !wheel.spinning ? (
-        <section className="topic-reveal" aria-live="polite">
-          <p>{activeTopic.category}</p>
-          <h1>{activeTopic.prompt}</h1>
-          <span>{activeTopic.trains}</span>
-          <button className="primary-pill" type="button" onClick={onStart}>
-            Start timer →
-          </button>
+      {wheelOpen ? (
+        <section className="wheel-overlay" aria-label="Topic wheel fullscreen">
+          <button
+            className="corner-exit corner-exit-left"
+            type="button"
+            onClick={onCloseWheel}
+            aria-label="Close topic wheel"
+          />
+          <button
+            className="corner-exit corner-exit-right"
+            type="button"
+            onClick={onCloseWheel}
+            aria-label="Close topic wheel"
+          />
+          <header className="spin-chrome">
+            <button className="table-link" type="button" onClick={onCloseWheel}>
+              Offscript
+            </button>
+            <label className="mini-pill table-setting">
+              Time
+              <select
+                value={duration}
+                onChange={(event) => onDurationChange(Number(event.target.value))}
+              >
+                <option value={30}>0:30</option>
+                <option value={60}>1:00</option>
+                <option value={90}>1:30</option>
+                <option value={120}>2:00</option>
+              </select>
+            </label>
+            <button className="table-link" type="button" onClick={onToggleMute}>
+              {muted ? "Sound off" : "Sound on"}
+            </button>
+          </header>
+
+          <RouletteWheel onSpin={onSpin} spinsLeft={spinsLeft} wheel={wheel} />
+
+          <div className="spin-actions">
+            <button
+              className="primary-pill"
+              disabled={wheel.spinning || spinsLeft <= 0}
+              type="button"
+              onClick={onSpin}
+            >
+              {wheel.spinning ? "Ball in motion" : hasRolled ? "Spin again" : "Spin for topic"}
+            </button>
+          </div>
+
+          {hasRolled && activeTopic && !wheel.spinning ? (
+            <section className="topic-reveal" aria-live="polite">
+              <p>{activeTopic.category}</p>
+              <h1>{activeTopic.prompt}</h1>
+              <span>{activeTopic.trains}</span>
+              <button className="primary-pill" type="button" onClick={onStart}>
+                Start timer →
+              </button>
+            </section>
+          ) : null}
         </section>
       ) : null}
     </section>

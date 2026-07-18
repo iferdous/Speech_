@@ -58,13 +58,6 @@ button:disabled {
   min-height: 100vh;
 }
 
-.app-shell:has(.spin-screen) {
-  background:
-    radial-gradient(circle at 50% 44%, rgba(245, 241, 232, 0.18), transparent 22rem),
-    radial-gradient(circle at 50% 50%, rgba(217, 163, 86, 0.18), transparent 37rem),
-    #12100d;
-}
-
 .welcome-screen,
 .practice-screen,
 .review-screen {
@@ -74,7 +67,7 @@ button:disabled {
   padding: 22px 32px 42px;
 }
 
-.spin-screen {
+.wheel-overlay {
   align-items: center;
   background:
     radial-gradient(circle at 50% 50%, rgba(184, 166, 232, 0.08), transparent 28rem),
@@ -86,10 +79,12 @@ button:disabled {
   max-width: none;
   overflow: hidden;
   padding: 18px clamp(16px, 3vw, 38px) 26px;
-  position: relative;
+  position: fixed;
+  inset: 0;
+  z-index: 30;
 }
 
-.spin-screen::before {
+.wheel-overlay::before {
   background:
     radial-gradient(circle at 50% 48%, rgba(37, 77, 67, 0.78), transparent 31rem),
     radial-gradient(circle at 50% 50%, transparent 0 22rem, rgba(0, 0, 0, 0.26) 45rem);
@@ -97,6 +92,24 @@ button:disabled {
   inset: 0;
   pointer-events: none;
   position: absolute;
+}
+
+.corner-exit {
+  background: rgba(245, 241, 232, 0.01);
+  border: 0;
+  height: min(25vw, 180px);
+  position: fixed;
+  top: 0;
+  width: min(25vw, 180px);
+  z-index: 40;
+}
+
+.corner-exit-left {
+  left: 0;
+}
+
+.corner-exit-right {
+  right: 0;
 }
 
 .spin-chrome {
@@ -140,6 +153,86 @@ button:disabled {
   justify-content: center;
   min-height: 42px;
   position: relative;
+}
+
+.landing-grid {
+  align-items: center;
+  display: grid;
+  gap: clamp(34px, 6vw, 88px);
+  grid-template-columns: minmax(280px, 0.95fr) minmax(360px, 1fr);
+  min-height: calc(100vh - 106px);
+}
+
+.landing-copy {
+  justify-self: center;
+  max-width: 590px;
+}
+
+.wordmark {
+  color: var(--forest);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(5.2rem, 13vw, 11rem);
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: -0.09em;
+  line-height: 0.8;
+  margin: 0 0 26px;
+  text-shadow: 0 1px 0 var(--cream), 0 13px 0 rgba(184, 166, 232, 0.28);
+}
+
+.landing-copy h1 {
+  font-size: clamp(2rem, 4vw, 4.2rem);
+  letter-spacing: -0.02em;
+  line-height: 0.98;
+  margin: 0 0 18px;
+}
+
+.landing-copy p:not(.wordmark) {
+  color: var(--forest-soft);
+  font-size: clamp(1.12rem, 1.8vw, 1.45rem);
+  line-height: 1.35;
+  margin: 0;
+}
+
+.wheel-preview {
+  aspect-ratio: 1;
+  background:
+    radial-gradient(circle at 50% 50%, var(--cream) 0 20%, transparent 21%),
+    repeating-conic-gradient(from -10deg, #17352f 0deg 22.5deg, #2c2019 22.5deg 45deg);
+  border: clamp(16px, 2vw, 26px) solid #8c5a2b;
+  border-radius: 50%;
+  color: var(--paper);
+  display: grid;
+  justify-items: center;
+  max-width: 560px;
+  padding: clamp(34px, 5vw, 70px);
+  place-content: center;
+  text-align: center;
+  width: 100%;
+}
+
+.wheel-preview span {
+  color: var(--gold);
+  font-family: Arial, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 950;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.wheel-preview strong {
+  color: var(--paper);
+  font-size: clamp(2.2rem, 5vw, 4.5rem);
+  font-style: italic;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.46);
+}
+
+.wheel-preview small {
+  color: rgba(255, 250, 240, 0.92);
+  font-size: clamp(1rem, 1.8vw, 1.3rem);
+  line-height: 1.22;
+  max-width: 340px;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
 .mode-label,
@@ -467,13 +560,14 @@ button:disabled {
 .raised-frets span {
   background: linear-gradient(90deg, rgba(255, 245, 190, 0.95), var(--rail), var(--rail-dark));
   border-radius: 999px;
-  height: calc(var(--wheel-size) * 0.26);
+  height: calc(var(--wheel-size) * 0.19);
   left: 50%;
   margin-left: -2px;
   position: absolute;
-  top: 11.5%;
+  opacity: 0.9;
+  top: 17%;
   transform: rotate(var(--fret-angle));
-  transform-origin: 2px calc(var(--wheel-size) * 0.385);
+  transform-origin: 2px calc(var(--wheel-size) * 0.33);
   width: 4px;
 }
 
@@ -487,19 +581,23 @@ button:disabled {
       transparent 1.5deg 30deg
     ),
     conic-gradient(
-      from -15deg,
-      #6e5930 0deg 30deg,
-      #663f3a 30deg 60deg,
-      #4f3d70 60deg 90deg,
-      #6a5a30 90deg 120deg,
-      #2f4d6a 120deg 150deg,
-      #694037 150deg 180deg,
-      #4c3d75 180deg 210deg,
-      #35664a 210deg 240deg,
-      #736033 240deg 270deg,
-      #5b4183 270deg 300deg,
-      #417759 300deg 330deg,
-      #5c477d 330deg 360deg
+      from -11.25deg,
+      #6e5930 0deg 22.5deg,
+      #663f3a 22.5deg 45deg,
+      #4f3d70 45deg 67.5deg,
+      #6a5a30 67.5deg 90deg,
+      #2f4d6a 90deg 112.5deg,
+      #694037 112.5deg 135deg,
+      #4c3d75 135deg 157.5deg,
+      #35664a 157.5deg 180deg,
+      #736033 180deg 202.5deg,
+      #5b4183 202.5deg 225deg,
+      #417759 225deg 247.5deg,
+      #5c477d 247.5deg 270deg,
+      #6e5930 270deg 292.5deg,
+      #2f4d6a 292.5deg 315deg,
+      #663f3a 315deg 337.5deg,
+      #4f3d70 337.5deg 360deg
     );
   border: clamp(9px, 1.3vw, 16px) solid var(--rail-dark);
   border-radius: 50%;
@@ -529,7 +627,7 @@ button:disabled {
   color: var(--paper);
   display: flex;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(0.75rem, 1.35vw, 1.05rem);
+  font-size: clamp(0.62rem, 0.92vw, 0.86rem);
   font-weight: 750;
   height: 24px;
   justify-content: center;
@@ -539,7 +637,7 @@ button:disabled {
   text-align: center;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
   top: calc(50% - 12px);
-  transform: rotate(var(--label-angle)) translateY(calc(var(--wheel-size) * -0.225)) rotate(90deg);
+  transform: rotate(var(--label-angle)) translateY(calc(var(--wheel-size) * -0.262)) rotate(90deg);
   transform-origin: center;
   width: 104px;
 }
@@ -582,13 +680,13 @@ button:disabled {
   height: clamp(16px, 2.1vw, 24px);
   position: absolute;
   transform: rotate(var(--ball-rotation)) translateY(calc(var(--wheel-size) * var(--ball-radius) * -1));
-  transition: transform 2.2s cubic-bezier(0.09, 0.78, 0.08, 1);
+  transition: none;
   width: clamp(16px, 2.1vw, 24px);
   z-index: 7;
 }
 
 .roulette-ball[data-spinning="true"] {
-  animation: ball-hop 360ms ease-in-out infinite;
+  animation: ball-clean-spin 3.6s cubic-bezier(0.11, 0.74, 0.16, 1) both;
 }
 
 .roulette-hub {
@@ -599,12 +697,12 @@ button:disabled {
   border-radius: 50%;
   color: var(--forest);
   display: grid;
-  height: 26%;
+  height: 31%;
   justify-items: center;
   position: absolute;
   text-align: center;
   transition: transform 180ms ease;
-  width: 26%;
+  width: 31%;
   z-index: 6;
 }
 
@@ -621,10 +719,10 @@ button:disabled {
 }
 
 .roulette-hub::after {
-  background: repeating-conic-gradient(from 0deg, rgba(80, 49, 25, 0.72) 0deg 5deg, rgba(245, 196, 106, 0.5) 5deg 9deg);
+  background: repeating-conic-gradient(from 0deg, rgba(80, 49, 25, 0.35) 0deg 5deg, rgba(245, 196, 106, 0.24) 5deg 9deg);
   border-radius: 50%;
-  inset: -42px;
-  opacity: 0.82;
+  inset: -24px;
+  opacity: 0.35;
   z-index: -1;
 }
 
@@ -940,6 +1038,28 @@ textarea {
   }
 }
 
+@keyframes ball-clean-spin {
+  0% {
+    transform: rotate(calc(var(--ball-rotation) - 2520deg)) translateY(calc(var(--wheel-size) * -0.41));
+  }
+
+  46% {
+    transform: rotate(calc(var(--ball-rotation) - 720deg)) translateY(calc(var(--wheel-size) * -0.38));
+  }
+
+  76% {
+    transform: rotate(calc(var(--ball-rotation) - 120deg)) translateY(calc(var(--wheel-size) * -0.32));
+  }
+
+  91% {
+    transform: rotate(calc(var(--ball-rotation) + 14deg)) translateY(calc(var(--wheel-size) * -0.28));
+  }
+
+  100% {
+    transform: rotate(var(--ball-rotation)) translateY(calc(var(--wheel-size) * var(--ball-radius) * -1));
+  }
+}
+
 @keyframes winner-pulse {
   0% {
     box-shadow: 0 0 0 0 rgba(217, 163, 86, 0.7);
@@ -993,6 +1113,21 @@ textarea {
     padding-top: 32px;
   }
 
+  .landing-grid {
+    grid-template-columns: 1fr;
+    min-height: auto;
+    padding-top: 34px;
+  }
+
+  .landing-copy {
+    justify-self: start;
+  }
+
+  .wheel-preview {
+    justify-self: center;
+    max-width: 460px;
+  }
+
   .hero-copy {
     justify-self: start;
   }
@@ -1035,7 +1170,7 @@ textarea {
 }
 
 @media (max-width: 620px) {
-  .spin-screen {
+  .wheel-overlay {
     align-content: start;
     gap: 18px;
     grid-template-rows: auto auto auto;
@@ -1056,6 +1191,10 @@ textarea {
     font-size: clamp(4.4rem, 19vw, 6.3rem);
   }
 
+  .wordmark {
+    font-size: clamp(4.2rem, 20vw, 6.6rem);
+  }
+
   .roulette-table {
     border-radius: 32px;
     margin-top: 4px;
@@ -1068,9 +1207,9 @@ textarea {
   }
 
   .wheel-label {
-    left: calc(50% - 45px);
-    font-size: 0.875rem;
-    width: 90px;
+    left: calc(50% - 42px);
+    font-size: 0.58rem;
+    width: 84px;
   }
 
   .spin-actions {

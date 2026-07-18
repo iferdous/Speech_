@@ -1,468 +1,810 @@
-"use client";
-
-import {
-  ArrowRight,
-  Check,
-  Clock3,
-  History,
-  Layers3,
-  LockKeyhole,
-  Mic2,
-  Pause,
-  Play,
-  RefreshCw,
-  RotateCcw,
-  Sparkles,
-  Target,
-  TimerReset,
-  Waves,
-} from "lucide-react";
 import type { CSSProperties } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TOPICS, type SpeechTopic } from "./data/topics";
 import {
-  createTopicPool,
   createSeededRandom,
+  createTopicPool,
   drawHand,
-  getTopicStats,
   recordLockedTopic,
   type TopicPoolState,
 } from "./lib/topicEngine";
 
-const MAX_REROLLS = 2;
-const HAND_SIZE = 3;
-
-type SessionState = {
-  pool: TopicPoolState;
-  hand: SpeechTopic[];
-  selectedId: string;
-  lockedTopic: SpeechTopic | null;
-  history: SpeechTopic[];
-  rerollsLeft: number;
-  timerSeconds: number;
-  timerRunning: boolean;
-  round: number;
+type SpeechRecognitionResultLike = {
+  isFinal: boolean;
+  [index: number]: { transcript: string };
 };
 
-function buildInitialSession(): SessionState {
-  const initialRandom = createSeededRandom(20260717);
-  const initialPool = createTopicPool(TOPICS, initialRandom);
-  const { hand, state } = drawHand(initialPool, TOPICS, {
-    random: initialRandom,
-    size: HAND_SIZE,
-  });
-
-  return {
-    pool: state,
-    hand,
-    selectedId: hand[0]?.id ?? "",
-    lockedTopic: null,
-    history: [],
-    rerollsLeft: MAX_REROLLS,
-    timerSeconds: hand[0]?.timeSeconds ?? 90,
-    timerRunning: false,
-    round: 1,
+type SpeechRecognitionEventLike = Event & {
+  resultIndex: number;
+  results: {
+    length: number;
+    [index: number]: SpeechRecognitionResultLike;
   };
+};
+
+type SpeechRecognitionErrorEventLike = Event & {
+  error: string;
+};
+
+type SpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
 }
+
+type Screen = "roll" | "practice" | "review";
+type PracticeStatus = "idle" | "recording" | "paused" | "finished";
+
+type DiceState = {
+  first: number;
+  second: number;
+  rolling: boolean;
+  throwId: number;
+};
+
+type Analysis = {
+  cleanedTranscript: string;
+  fillerCounts: Array<{ word: string; count: number }>;
+  totalFillers: number;
+  wordCount: number;
+  wpm: number;
+  repeatedStarts: string[];
+  suggestions: string[];
+};
+
+const HAND_SIZE = 2;
+const DEFAULT_SECONDS = 60;
+const FILLERS = [
+  "um",
+  "uh",
+  "like",
+  "you know",
+  "i mean",
+  "actually",
+  "basically",
+  "literally",
+  "sort of",
+  "kind of",
+  "kinda",
+  "so",
+  "right",
+];
 
 function formatTime(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60)
     .toString()
-    .padStart(2, "0");
+    .padStart(1, "0");
   const seconds = (totalSeconds % 60).toString().padStart(2, "0");
   return `${minutes}:${seconds}`;
 }
 
+function buildInitialPool() {
+  const random = createSeededRandom(20260718);
+  const pool = createTopicPool(TOPICS, random);
+  return drawHand(pool, TOPICS, { random, size: HAND_SIZE });
+}
+
+function countWords(text: string) {
+  return text
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+}
+
+function getSpeechRecognition() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const Recognition =
+    window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
+
+  return Recognition ? new Recognition() : null;
+}
+
+function analyzeSpeech(rawTranscript: string, durationSeconds: number): Analysis {
+  const normalized = rawTranscript.toLowerCase();
+  const fillerCounts = FILLERS.map((word) => {
+    const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const count = (normalized.match(new RegExp(`\\b${escaped}\\b`, "g")) ?? [])
+      .length;
+    return { word, count };
+  }).filter((item) => item.count > 0);
+  const totalFillers = fillerCounts.reduce((sum, item) => sum + item.count, 0);
+  const wordCount = countWords(rawTranscript);
+  const minutes = Math.max(durationSeconds / 60, 0.25);
+  const wpm = Math.round(wordCount / minutes);
+  const repeatedStarts = findRepeatedStarts(rawTranscript);
+  const cleanedTranscript = cleanTranscript(rawTranscript);
+  const suggestions = buildSuggestions({
+    fillerCounts,
+    repeatedStarts,
+    totalFillers,
+    wordCount,
+    wpm,
+  });
+
+  return {
+    cleanedTranscript,
+    fillerCounts,
+    totalFillers,
+    wordCount,
+    wpm,
+    repeatedStarts,
+    suggestions,
+  };
+}
+
+function cleanTranscript(rawTranscript: string) {
+  let cleaned = ` ${rawTranscript.trim()} `;
+
+  for (const filler of FILLERS) {
+    const escaped = filler.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    cleaned = cleaned.replace(new RegExp(`\\b${escaped}\\b[, ]*`, "gi"), "");
+  }
+
+  return cleaned
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.!?])/g, "$1")
+    .replace(/(^\w|[.!?]\s+\w)/g, (match) => match.toUpperCase())
+    .trim();
+}
+
+function findRepeatedStarts(rawTranscript: string) {
+  const words = rawTranscript
+    .toLowerCase()
+    .replace(/[^\w\s]/g, "")
+    .split(/\s+/)
+    .filter(Boolean);
+  const repeats = new Set<string>();
+
+  for (let index = 1; index < words.length; index += 1) {
+    if (words[index] === words[index - 1] && words[index].length > 2) {
+      repeats.add(words[index]);
+    }
+  }
+
+  return [...repeats].slice(0, 5);
+}
+
+function buildSuggestions({
+  fillerCounts,
+  repeatedStarts,
+  totalFillers,
+  wordCount,
+  wpm,
+}: Pick<
+  Analysis,
+  "fillerCounts" | "repeatedStarts" | "totalFillers" | "wordCount" | "wpm"
+>) {
+  const suggestions: string[] = [];
+
+  if (wordCount < 12) {
+    suggestions.push(
+      "Say a little more next round. Aim for one claim, one example, and one closing sentence.",
+    );
+  }
+
+  if (totalFillers > 4) {
+    const topFiller = fillerCounts[0]?.word ?? "filler words";
+    suggestions.push(
+      `Your main filler was "${topFiller}". Try replacing that sound with a full silent pause.`,
+    );
+  }
+
+  if (wpm > 165) {
+    suggestions.push(
+      "Your pace was quick. Slow the first sentence down so listeners can catch the frame.",
+    );
+  } else if (wpm > 0 && wpm < 95) {
+    suggestions.push(
+      "Your pace was careful. Add a little more forward motion after each pause.",
+    );
+  } else if (wpm > 0) {
+    suggestions.push("Your pace is in a natural speaking range. Keep that rhythm.");
+  }
+
+  if (repeatedStarts.length > 0) {
+    suggestions.push(
+      `You repeated ${repeatedStarts
+        .map((word) => `"${word}"`)
+        .join(", ")}. Pause, then restart the sentence cleanly.`,
+    );
+  }
+
+  if (suggestions.length === 0) {
+    suggestions.push(
+      "Strong start. For the next rep, practice landing with one memorable final sentence.",
+    );
+  }
+
+  return suggestions.slice(0, 4);
+}
+
 export function SpeechDeckApp() {
-  const [session, setSession] = useState<SessionState>(buildInitialSession);
-  const selectedTopic = useMemo(
-    () => session.hand.find((topic) => topic.id === session.selectedId),
-    [session.hand, session.selectedId],
+  const initialDraw = useMemo(buildInitialPool, []);
+  const [screen, setScreen] = useState<Screen>("roll");
+  const [pool, setPool] = useState<TopicPoolState>(initialDraw.state);
+  const [topics, setTopics] = useState<SpeechTopic[]>(initialDraw.hand);
+  const [activeTopic, setActiveTopic] = useState<SpeechTopic>(initialDraw.hand[0]);
+  const [dice, setDice] = useState<DiceState>({
+    first: 3,
+    rolling: false,
+    second: 6,
+    throwId: 0,
+  });
+  const [duration, setDuration] = useState(DEFAULT_SECONDS);
+  const [remaining, setRemaining] = useState(DEFAULT_SECONDS);
+  const [status, setStatus] = useState<PracticeStatus>("idle");
+  const [finalTranscript, setFinalTranscript] = useState("");
+  const [interimTranscript, setInterimTranscript] = useState("");
+  const [manualTranscript, setManualTranscript] = useState("");
+  const [speechError, setSpeechError] = useState("");
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+
+  const rawTranscript = [finalTranscript, interimTranscript, manualTranscript]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const progress = duration > 0 ? (duration - remaining) / duration : 0;
+  const analysis = useMemo(
+    () => analyzeSpeech(rawTranscript, duration),
+    [duration, rawTranscript],
   );
-  const activeTopic = session.lockedTopic ?? selectedTopic ?? session.hand[0];
-  const stats = getTopicStats(session.pool, TOPICS.length);
-  const progress =
-    activeTopic && activeTopic.timeSeconds > 0
-      ? Math.max(0, session.timerSeconds / activeTopic.timeSeconds)
-      : 0;
 
   useEffect(() => {
-    if (!session.timerRunning) {
+    if (status !== "recording") {
       return;
     }
 
     const timer = window.setInterval(() => {
-      setSession((current) => {
-        if (current.timerSeconds <= 1) {
-          return { ...current, timerSeconds: 0, timerRunning: false };
+      setRemaining((current) => {
+        if (current <= 1) {
+          window.clearInterval(timer);
+          finishPractice();
+          return 0;
         }
 
-        return { ...current, timerSeconds: current.timerSeconds - 1 };
+        return current - 1;
       });
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [session.timerRunning]);
+  }, [status]);
 
-  function selectTopic(topic: SpeechTopic) {
-    if (session.lockedTopic) {
+  function rollDice() {
+    if (dice.rolling) {
       return;
     }
 
-    setSession((current) => ({
-      ...current,
-      selectedId: topic.id,
-      timerSeconds: topic.timeSeconds,
-      timerRunning: false,
+    const first = Math.ceil(Math.random() * 6);
+    const second = Math.ceil(Math.random() * 6);
+
+    setDice((current) => ({
+      first,
+      rolling: true,
+      second,
+      throwId: current.throwId + 1,
     }));
+
+    window.setTimeout(() => {
+      const result = drawHand(pool, TOPICS, { size: HAND_SIZE });
+      const chosenIndex = (first + second) % result.hand.length;
+      const chosenTopic = result.hand[chosenIndex] ?? result.hand[0];
+
+      setPool(recordLockedTopic(result.state, chosenTopic));
+      setTopics(result.hand);
+      setActiveTopic(chosenTopic);
+      setRemaining(duration);
+      setDice((current) => ({ ...current, rolling: false }));
+    }, 1100);
   }
 
-  function lockTopic() {
-    if (!selectedTopic || session.lockedTopic) {
+  function startPractice() {
+    setScreen("practice");
+    setStatus("recording");
+    setRemaining(duration);
+    setFinalTranscript("");
+    setInterimTranscript("");
+    setManualTranscript("");
+    setSpeechError("");
+
+    const recognition = getSpeechRecognition();
+    recognitionRef.current = recognition;
+
+    if (!recognition) {
+      setSpeechError(
+        "Live browser transcription is not available here. Type what you said in the notes box while the timer runs.",
+      );
       return;
     }
 
-    setSession((current) => ({
-      ...current,
-      pool: recordLockedTopic(current.pool, selectedTopic),
-      lockedTopic: selectedTopic,
-      timerSeconds: selectedTopic.timeSeconds,
-      timerRunning: false,
-      history: [selectedTopic, ...current.history].slice(0, 10),
-    }));
-  }
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    recognition.onresult = (event) => {
+      let finalText = "";
+      let interimText = "";
 
-  function redrawHand() {
-    if (session.lockedTopic || session.rerollsLeft <= 0) {
-      return;
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const transcript = result[0]?.transcript ?? "";
+
+        if (result.isFinal) {
+          finalText += `${transcript} `;
+        } else {
+          interimText += transcript;
+        }
+      }
+
+      if (finalText) {
+        setFinalTranscript((current) => `${current} ${finalText}`.trim());
+      }
+
+      setInterimTranscript(interimText);
+    };
+    recognition.onerror = (event) => {
+      setSpeechError(
+        event.error === "not-allowed"
+          ? "Microphone permission was blocked. You can still paste or type the transcript below."
+          : "Transcription paused. You can keep speaking or use the notes box.",
+      );
+    };
+    recognition.onend = () => {
+      if (status === "recording" && remaining > 0) {
+        try {
+          recognition.start();
+        } catch {
+          // Some browsers briefly reject restart calls while closing the old session.
+        }
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      setSpeechError("The microphone could not start. You can type the transcript below.");
     }
-
-    setSession((current) => {
-      const { hand, state } = drawHand(current.pool, TOPICS, {
-        size: HAND_SIZE,
-      });
-
-      return {
-        ...current,
-        pool: state,
-        hand,
-        selectedId: hand[0]?.id ?? "",
-        timerSeconds: hand[0]?.timeSeconds ?? 90,
-        timerRunning: false,
-        rerollsLeft: current.rerollsLeft - 1,
-      };
-    });
   }
 
-  function nextRound() {
-    setSession((current) => {
-      const { hand, state } = drawHand(current.pool, TOPICS, {
-        size: HAND_SIZE,
-      });
-
-      return {
-        ...current,
-        pool: state,
-        hand,
-        selectedId: hand[0]?.id ?? "",
-        lockedTopic: null,
-        timerSeconds: hand[0]?.timeSeconds ?? 90,
-        timerRunning: false,
-        round: current.round + 1,
-      };
-    });
+  function pausePractice() {
+    setStatus("paused");
+    recognitionRef.current?.stop();
   }
 
-  function toggleTimer() {
-    if (!session.lockedTopic || session.timerSeconds === 0) {
-      return;
+  function resumePractice() {
+    setStatus("recording");
+    try {
+      recognitionRef.current?.start();
+    } catch {
+      setSpeechError("Transcription could not resume. Keep typing in the notes box.");
     }
-
-    setSession((current) => ({
-      ...current,
-      timerRunning: !current.timerRunning,
-    }));
   }
 
-  function resetTimer() {
-    if (!activeTopic) {
-      return;
-    }
-
-    setSession((current) => ({
-      ...current,
-      timerSeconds: activeTopic.timeSeconds,
-      timerRunning: false,
-    }));
+  function finishPractice() {
+    setStatus("finished");
+    recognitionRef.current?.stop();
+    setScreen("review");
   }
 
-  function resetSession() {
-    setSession(buildInitialSession());
+  function resetPractice() {
+    recognitionRef.current?.stop();
+    setScreen("roll");
+    setStatus("idle");
+    setRemaining(duration);
+    setFinalTranscript("");
+    setInterimTranscript("");
+    setManualTranscript("");
+    setSpeechError("");
   }
 
   return (
     <main className="app-shell">
-      <VelocityRibbon />
+      {screen === "roll" ? (
+        <RollScreen
+          activeTopic={activeTopic}
+          dice={dice}
+          duration={duration}
+          onDurationChange={(nextDuration) => {
+            setDuration(nextDuration);
+            setRemaining(nextDuration);
+          }}
+          onRoll={rollDice}
+          onStart={startPractice}
+          topics={topics}
+        />
+      ) : null}
 
-      <section className="studio-grid" aria-label="OutLoud speaking deck">
-        <section className="stage">
-          <header className="stage-header">
-            <div>
-              <p className="eyebrow">
-                <Mic2 aria-hidden="true" size={16} />
-                OutLoud Deck
-              </p>
-              <h1>Pick the uncomfortable topic. Speak it clean.</h1>
-            </div>
-            <div className="round-chip" aria-label={`Round ${session.round}`}>
-              <span>Round</span>
-              <strong>{session.round}</strong>
-            </div>
-          </header>
+      {screen === "practice" ? (
+        <PracticeScreen
+          activeTopic={activeTopic}
+          duration={duration}
+          manualTranscript={manualTranscript}
+          onBack={resetPractice}
+          onFinish={finishPractice}
+          onManualTranscript={setManualTranscript}
+          onPause={pausePractice}
+          onResume={resumePractice}
+          progress={progress}
+          rawTranscript={rawTranscript}
+          remaining={remaining}
+          setDuration={(nextDuration) => {
+            const difference = nextDuration - duration;
+            setDuration(nextDuration);
+            setRemaining((current) => Math.max(15, current + difference));
+          }}
+          speechError={speechError}
+          status={status}
+        />
+      ) : null}
 
-          <section className="deck-zone" aria-label="Topic choices">
-            <div className="deck-meta">
-              <div>
-                <p className="section-kicker">Draw three</p>
-                <h2>Choose the prompt you will actually face.</h2>
-              </div>
-              <div className="deck-controls">
-                <button
-                  className="primary-button"
-                  type="button"
-                  onClick={lockTopic}
-                  disabled={!selectedTopic || session.lockedTopic !== null}
-                >
-                  <LockKeyhole aria-hidden="true" size={18} />
-                  Lock topic
-                </button>
-                <button
-                  className="icon-button quiet"
-                  type="button"
-                  onClick={redrawHand}
-                  disabled={
-                    session.lockedTopic !== null || session.rerollsLeft === 0
-                  }
-                  aria-label="Redraw topic hand"
-                  title="Redraw topic hand"
-                >
-                  <RefreshCw aria-hidden="true" size={19} />
-                </button>
-              </div>
-            </div>
-
-            <div
-              className="topic-stack"
-              data-locked={session.lockedTopic ? "true" : "false"}
-            >
-              {session.hand.map((topic, index) => {
-                const isSelected = topic.id === session.selectedId;
-                const isLocked = topic.id === session.lockedTopic?.id;
-
-                return (
-                  <button
-                    className="topic-card"
-                    data-selected={isSelected ? "true" : "false"}
-                    data-locked={isLocked ? "true" : "false"}
-                    key={topic.id}
-                    onClick={() => selectTopic(topic)}
-                    style={{ "--stack-index": index } as CSSProperties}
-                    type="button"
-                  >
-                    <span className="topic-card-topline">
-                      <span>{topic.category}</span>
-                      <span>{topic.difficulty}</span>
-                    </span>
-                    <span className="topic-prompt">{topic.prompt}</span>
-                    <span className="topic-training">
-                      <Target aria-hidden="true" size={15} />
-                      {topic.trains}
-                    </span>
-                    <span className="topic-card-footer">
-                      <span>{topic.framework}</span>
-                      {isLocked ? (
-                        <Check aria-hidden="true" size={18} />
-                      ) : (
-                        <ArrowRight aria-hidden="true" size={18} />
-                      )}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="action-row">
-              <div
-                className="reroll-meter"
-                aria-label={`${session.rerollsLeft} redraws left`}
-              >
-                {[0, 1].map((slot) => (
-                  <span
-                    className="reroll-dot"
-                    data-active={slot < session.rerollsLeft ? "true" : "false"}
-                    key={slot}
-                  />
-                ))}
-                <span>{session.rerollsLeft} redraws</span>
-              </div>
-            </div>
-          </section>
-
-          {activeTopic ? (
-            <section className="active-topic" aria-label="Active topic">
-              <div className="active-copy">
-                <p className="section-kicker">Why this one</p>
-                <h2>{activeTopic.why}</h2>
-                <div className="tag-row" aria-label="Topic tags">
-                  {activeTopic.tags.map((tag) => (
-                    <span key={tag}>{tag}</span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="timer-module">
-                <div
-                  className="timer-ring"
-                  style={{ "--timer-progress": progress } as CSSProperties}
-                  aria-label={`${formatTime(session.timerSeconds)} remaining`}
-                >
-                  <span>{formatTime(session.timerSeconds)}</span>
-                </div>
-                <div className="timer-actions">
-                  <button
-                    className="icon-button"
-                    type="button"
-                    onClick={toggleTimer}
-                    disabled={!session.lockedTopic || session.timerSeconds === 0}
-                    aria-label={session.timerRunning ? "Pause timer" : "Start timer"}
-                    title={session.timerRunning ? "Pause timer" : "Start timer"}
-                  >
-                    {session.timerRunning ? (
-                      <Pause aria-hidden="true" size={19} />
-                    ) : (
-                      <Play aria-hidden="true" size={19} />
-                    )}
-                  </button>
-                  <button
-                    className="icon-button quiet"
-                    type="button"
-                    onClick={resetTimer}
-                    aria-label="Reset timer"
-                    title="Reset timer"
-                  >
-                    <TimerReset aria-hidden="true" size={19} />
-                  </button>
-                </div>
-              </div>
-            </section>
-          ) : null}
-        </section>
-
-        <aside className="session-board" aria-label="Session details">
-          <div className="session-card stats-card">
-            <div className="panel-title">
-              <Layers3 aria-hidden="true" size={18} />
-              <span>Deck state</span>
-            </div>
-            <dl className="stats-grid">
-              <div>
-                <dt>Remaining</dt>
-                <dd>{stats.remaining}</dd>
-              </div>
-              <div>
-                <dt>Seen</dt>
-                <dd>{stats.spent}</dd>
-              </div>
-              <div>
-                <dt>Pool</dt>
-                <dd>{stats.total}</dd>
-              </div>
-              <div>
-                <dt>Reshuffles</dt>
-                <dd>{stats.reshuffleCount}</dd>
-              </div>
-            </dl>
-          </div>
-
-          <div className="session-card lock-card">
-            <div className="panel-title">
-              <Clock3 aria-hidden="true" size={18} />
-              <span>Current lock</span>
-            </div>
-            {session.lockedTopic ? (
-              <>
-                <p className="locked-prompt">{session.lockedTopic.prompt}</p>
-                <button className="secondary-button" type="button" onClick={nextRound}>
-                  <ArrowRight aria-hidden="true" size={18} />
-                  Next draw
-                </button>
-              </>
-            ) : (
-              <p className="empty-state">
-                Select a card, then lock it before the timer starts.
-              </p>
-            )}
-          </div>
-
-          <div className="session-card history-card">
-            <div className="panel-title">
-              <History aria-hidden="true" size={18} />
-              <span>Last 10</span>
-            </div>
-            {session.history.length > 0 ? (
-              <ol className="history-list">
-                {session.history.map((topic) => (
-                  <li key={`${topic.id}-${topic.prompt}`}>
-                    <span>{topic.category}</span>
-                    <p>{topic.prompt}</p>
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <p className="empty-state">Locked topics will collect here.</p>
-            )}
-          </div>
-
-          <button className="reset-button" type="button" onClick={resetSession}>
-            <RotateCcw aria-hidden="true" size={18} />
-            Reset session
-          </button>
-        </aside>
-      </section>
+      {screen === "review" ? (
+        <ReviewScreen
+          activeTopic={activeTopic}
+          analysis={analysis}
+          duration={duration}
+          onNewRoll={resetPractice}
+          onRetry={() => {
+            setScreen("practice");
+            setStatus("idle");
+            setRemaining(duration);
+            setFinalTranscript("");
+            setInterimTranscript("");
+            setManualTranscript("");
+          }}
+          rawTranscript={rawTranscript}
+        />
+      ) : null}
     </main>
   );
 }
 
-function VelocityRibbon() {
-  const phrases = [
-    "clarity",
-    "rhythm",
-    "confidence",
-    "vocabulary",
-    "presence",
-    "structure",
-    "flow",
-    "nerve",
-  ];
+function RollScreen({
+  activeTopic,
+  dice,
+  duration,
+  onDurationChange,
+  onRoll,
+  onStart,
+  topics,
+}: {
+  activeTopic: SpeechTopic;
+  dice: DiceState;
+  duration: number;
+  onDurationChange: (duration: number) => void;
+  onRoll: () => void;
+  onStart: () => void;
+  topics: SpeechTopic[];
+}) {
+  const ghostTopic = topics.find((topic) => topic.id !== activeTopic.id) ?? topics[0];
 
   return (
-    <div className="velocity-wrap" aria-hidden="true">
-      <div className="velocity-line">
-        {[...phrases, ...phrases].map((phrase, index) => (
-          <span key={`${phrase}-${index}`}>
-            <Waves size={15} />
-            {phrase}
-          </span>
-        ))}
+    <section className="welcome-screen" aria-label="Topic roll">
+      <header className="top-bar">
+        <nav className="pill-tabs" aria-label="Practice modes">
+          <button className="pill active" type="button">
+            Random Topics
+          </button>
+          <button className="pill" type="button">
+            Interview Prep
+          </button>
+          <button className="pill" type="button">
+            Learn Vocab
+          </button>
+        </nav>
+        <p className="tiny-wordmark">Baby steps to the mic</p>
+      </header>
+
+      <section className="hero-layout">
+        <div className="hero-copy">
+          <p className="brand-mark">Off the Cuff</p>
+          <ol className="hand-list">
+            <li>Roll for a topic</li>
+            <li>Set your speaking time</li>
+            <li>Talk, transcribe, review</li>
+          </ol>
+          <button className="primary-pill analysis-cta" type="button" onClick={onStart}>
+            Get speech analysis
+            <span>new</span>
+          </button>
+        </div>
+
+        <div className="topic-area">
+          <div className="soft-controls" aria-label="Session settings">
+            <label className="mini-pill">
+              Time
+              <select
+                value={duration}
+                onChange={(event) => onDurationChange(Number(event.target.value))}
+              >
+                <option value={30}>0:30</option>
+                <option value={60}>1:00</option>
+                <option value={90}>1:30</option>
+                <option value={120}>2:00</option>
+              </select>
+            </label>
+            <span className="mini-pill">Medium</span>
+            <span className="mini-pill">Random</span>
+          </div>
+
+          <div className="topic-stack-soft" aria-live="polite">
+            <p className="ghost-topic">{ghostTopic?.prompt}</p>
+            <h1>{activeTopic.prompt}</h1>
+            <p className="ghost-topic lower">{activeTopic.trains}</p>
+          </div>
+
+          <DiceBoard dice={dice} onRoll={onRoll} />
+
+          <div className="main-actions">
+            <button className="primary-pill" type="button" onClick={onRoll}>
+              {dice.rolling ? "Rolling..." : "Roll dice"}
+            </button>
+            <button className="secondary-pill" type="button" onClick={onStart}>
+              Start timer →
+            </button>
+          </div>
+        </div>
+      </section>
+    </section>
+  );
+}
+
+function DiceBoard({ dice, onRoll }: { dice: DiceState; onRoll: () => void }) {
+  return (
+    <button
+      className="dice-board"
+      data-rolling={dice.rolling ? "true" : "false"}
+      key={dice.throwId}
+      onClick={onRoll}
+      type="button"
+      aria-label={`Roll dice. Current result ${dice.first} and ${dice.second}`}
+    >
+      <span className="felt-label">tap the board</span>
+      <span className="throw-hand" aria-hidden="true">
+        <span className="hand-palm" />
+        <span className="finger one" />
+        <span className="finger two" />
+        <span className="finger three" />
+      </span>
+      <Die value={dice.first} className="die first" />
+      <Die value={dice.second} className="die second" />
+    </button>
+  );
+}
+
+function Die({ className, value }: { className: string; value: number }) {
+  return (
+    <span className={className} style={{ "--die-value": value } as CSSProperties}>
+      {Array.from({ length: 6 }, (_, index) => (
+        <span
+          className="pip"
+          data-visible={isPipVisible(value, index) ? "true" : "false"}
+          key={index}
+        />
+      ))}
+    </span>
+  );
+}
+
+function isPipVisible(value: number, index: number) {
+  const map: Record<number, number[]> = {
+    1: [4],
+    2: [0, 5],
+    3: [0, 4, 5],
+    4: [0, 2, 3, 5],
+    5: [0, 2, 3, 4, 5],
+    6: [0, 1, 2, 3, 4, 5],
+  };
+
+  return map[value]?.includes(index) ?? false;
+}
+
+function PracticeScreen({
+  activeTopic,
+  duration,
+  manualTranscript,
+  onBack,
+  onFinish,
+  onManualTranscript,
+  onPause,
+  onResume,
+  progress,
+  rawTranscript,
+  remaining,
+  setDuration,
+  speechError,
+  status,
+}: {
+  activeTopic: SpeechTopic;
+  duration: number;
+  manualTranscript: string;
+  onBack: () => void;
+  onFinish: () => void;
+  onManualTranscript: (value: string) => void;
+  onPause: () => void;
+  onResume: () => void;
+  progress: number;
+  rawTranscript: string;
+  remaining: number;
+  setDuration: (duration: number) => void;
+  speechError: string;
+  status: PracticeStatus;
+}) {
+  return (
+    <section className="practice-screen" aria-label="Timed speaking practice">
+      <button className="back-link" type="button" onClick={onBack}>
+        ← Back
+      </button>
+      <button className="floating-analysis" type="button" onClick={onFinish}>
+        Get speech analysis
+        <span>new</span>
+      </button>
+
+      <div className="practice-topic">
+        <p>Topic:</p>
+        <h1>{activeTopic.prompt}</h1>
       </div>
-      <div className="velocity-line reverse">
-        {[...phrases].reverse().concat(phrases).map((phrase, index) => (
-          <span key={`${phrase}-reverse-${index}`}>
-            <Sparkles size={15} />
-            {phrase}
-          </span>
-        ))}
+
+      <div
+        className="timer-circle"
+        data-live={status === "recording" ? "true" : "false"}
+        style={{ "--progress": progress } as CSSProperties}
+      >
+        <div>
+          <strong>{formatTime(remaining)}</strong>
+          <div className="time-adjust">
+            <button
+              className="secondary-pill small"
+              type="button"
+              onClick={() => setDuration(Math.max(30, duration - 30))}
+            >
+              −0:30
+            </button>
+            <button
+              className="secondary-pill small"
+              type="button"
+              onClick={() => setDuration(duration + 30)}
+            >
+              +0:30
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
+
+      <div className="practice-controls">
+        {status === "recording" ? (
+          <button className="round-control" type="button" onClick={onPause}>
+            pause
+          </button>
+        ) : (
+          <button className="round-control live" type="button" onClick={onResume}>
+            speak
+          </button>
+        )}
+        <button className="secondary-pill" type="button" onClick={onFinish}>
+          Finish & review
+        </button>
+      </div>
+
+      <section className="transcript-panel" aria-label="Live transcript">
+        <div>
+          <p className="panel-kicker">Live transcript</p>
+          <p className="transcript-text">
+            {rawTranscript ||
+              "Start speaking. Your raw words, including filler words, will collect here."}
+          </p>
+          {speechError ? <p className="speech-error">{speechError}</p> : null}
+        </div>
+        <textarea
+          aria-label="Manual transcript fallback"
+          placeholder="If browser transcription is unavailable, type or paste what you said here."
+          value={manualTranscript}
+          onChange={(event) => onManualTranscript(event.target.value)}
+        />
+      </section>
+    </section>
+  );
+}
+
+function ReviewScreen({
+  activeTopic,
+  analysis,
+  duration,
+  onNewRoll,
+  onRetry,
+  rawTranscript,
+}: {
+  activeTopic: SpeechTopic;
+  analysis: Analysis;
+  duration: number;
+  onNewRoll: () => void;
+  onRetry: () => void;
+  rawTranscript: string;
+}) {
+  return (
+    <section className="review-screen" aria-label="Speech feedback">
+      <header className="review-header">
+        <div>
+          <p className="tiny-wordmark">Baby steps to the mic</p>
+          <h1>Here’s what your speech sounded like.</h1>
+        </div>
+        <div className="review-actions">
+          <button className="secondary-pill" type="button" onClick={onRetry}>
+            Try same topic
+          </button>
+          <button className="primary-pill" type="button" onClick={onNewRoll}>
+            Roll again
+          </button>
+        </div>
+      </header>
+
+      <p className="review-topic">{activeTopic.prompt}</p>
+
+      <div className="score-row">
+        <div>
+          <span>{analysis.totalFillers}</span>
+          <p>filler words</p>
+        </div>
+        <div>
+          <span>{analysis.wpm}</span>
+          <p>words per minute</p>
+        </div>
+        <div>
+          <span>{analysis.wordCount}</span>
+          <p>total words in {formatTime(duration)}</p>
+        </div>
+      </div>
+
+      <div className="review-grid">
+        <article className="review-block">
+          <p className="panel-kicker">Raw version</p>
+          <p>{rawTranscript || "No transcript captured yet."}</p>
+        </article>
+        <article className="review-block">
+          <p className="panel-kicker">Cleaned version</p>
+          <p>
+            {analysis.cleanedTranscript ||
+              "Once you record or type a transcript, the cleaned version appears here."}
+          </p>
+        </article>
+        <article className="review-block">
+          <p className="panel-kicker">Filler words</p>
+          {analysis.fillerCounts.length > 0 ? (
+            <ul className="filler-list">
+              {analysis.fillerCounts.map((item) => (
+                <li key={item.word}>
+                  <span>{item.word}</span>
+                  <strong>{item.count}</strong>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No tracked filler words found.</p>
+          )}
+        </article>
+        <article className="review-block">
+          <p className="panel-kicker">What to work on</p>
+          <ul className="suggestion-list">
+            {analysis.suggestions.map((suggestion) => (
+              <li key={suggestion}>{suggestion}</li>
+            ))}
+          </ul>
+        </article>
+      </div>
+    </section>
   );
 }

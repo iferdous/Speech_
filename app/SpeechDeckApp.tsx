@@ -62,6 +62,7 @@ type SlotMachineState = {
 
 type CategoryFilter = TopicCategory | "Any";
 type DifficultyFilter = SpeechTopic["difficulty"] | "Any";
+type LandingFilterKey = "time" | "difficulty" | "category";
 
 type SlotTopicRowData = {
   topic: SpeechTopic;
@@ -766,6 +767,29 @@ function RollScreen({
   slotOpen: boolean;
   spinsLeft: number;
 }) {
+  const [openFilter, setOpenFilter] = useState<LandingFilterKey | null>(null);
+  const timeOptions = [
+    { label: "0:30", value: 30 },
+    { label: "1:00", value: 60 },
+    { label: "1:30", value: 90 },
+    { label: "2:00", value: 120 },
+    { label: "3:00", value: 180 },
+  ];
+  const difficultyOptions: Array<{ label: string; value: DifficultyFilter }> = [
+    { label: "Any difficulty", value: "Any" },
+    ...SLOT_DIFFICULTIES.map((difficulty) => ({
+      label: difficulty,
+      value: difficulty,
+    })),
+  ];
+  const categoryOptions: Array<{ label: string; value: CategoryFilter }> = [
+    { label: "Any category", value: "Any" },
+    ...SLOT_CATEGORIES.map((category) => ({
+      label: SLOT_CATEGORY_META[category].label,
+      value: category,
+    })),
+  ];
+
   return (
     <section className="welcome-screen" aria-label="Offscript topic practice">
       <header className="top-bar">
@@ -782,54 +806,55 @@ function RollScreen({
             of your answer.
           </p>
           <div className="landing-filters" aria-label="Topic setup filters">
-            <label className="landing-filter-pill">
-              <span aria-hidden="true">⏱</span>
-              <select
-                value={duration}
-                onChange={(event) => onDurationChange(Number(event.target.value))}
-                aria-label="Speaking time"
-              >
-                <option value={30}>0:30</option>
-                <option value={60}>1:00</option>
-                <option value={90}>1:30</option>
-                <option value={120}>2:00</option>
-                <option value={180}>3:00</option>
-              </select>
-            </label>
-            <label className="landing-filter-pill">
-              <span aria-hidden="true">●</span>
-              <select
-                value={difficultyFilter}
-                onChange={(event) =>
-                  onDifficultyFilterChange(event.target.value as DifficultyFilter)
-                }
-                aria-label="Topic difficulty"
-              >
-                <option value="Any">Any difficulty</option>
-                {SLOT_DIFFICULTIES.map((difficulty) => (
-                  <option key={difficulty} value={difficulty}>
-                    {difficulty}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="landing-filter-pill">
-              <span aria-hidden="true">◎</span>
-              <select
-                value={categoryFilter}
-                onChange={(event) =>
-                  onCategoryFilterChange(event.target.value as CategoryFilter)
-                }
-                aria-label="Topic category"
-              >
-                <option value="Any">Any category</option>
-                {SLOT_CATEGORIES.map((category) => (
-                  <option key={category} value={category}>
-                    {SLOT_CATEGORY_META[category].label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <LandingFilterMenu
+              icon="⏱"
+              id="time"
+              isOpen={openFilter === "time"}
+              label="Speaking time"
+              onToggle={() =>
+                setOpenFilter((current) => (current === "time" ? null : "time"))
+              }
+              options={timeOptions}
+              selectedValue={duration}
+              onSelect={(value) => {
+                onDurationChange(value);
+                setOpenFilter(null);
+              }}
+            />
+            <LandingFilterMenu
+              icon="●"
+              id="difficulty"
+              isOpen={openFilter === "difficulty"}
+              label="Topic difficulty"
+              onToggle={() =>
+                setOpenFilter((current) =>
+                  current === "difficulty" ? null : "difficulty",
+                )
+              }
+              options={difficultyOptions}
+              selectedValue={difficultyFilter}
+              onSelect={(value) => {
+                onDifficultyFilterChange(value);
+                setOpenFilter(null);
+              }}
+            />
+            <LandingFilterMenu
+              icon="◎"
+              id="category"
+              isOpen={openFilter === "category"}
+              label="Topic category"
+              onToggle={() =>
+                setOpenFilter((current) =>
+                  current === "category" ? null : "category",
+                )
+              }
+              options={categoryOptions}
+              selectedValue={categoryFilter}
+              onSelect={(value) => {
+                onCategoryFilterChange(value);
+                setOpenFilter(null);
+              }}
+            />
           </div>
           <div className="main-actions">
             <button className="primary-pill" type="button" onClick={onOpenSlot}>
@@ -953,6 +978,65 @@ function RollScreen({
         </section>
       ) : null}
     </section>
+  );
+}
+
+function LandingFilterMenu<TValue extends string | number>({
+  icon,
+  id,
+  isOpen,
+  label,
+  onSelect,
+  onToggle,
+  options,
+  selectedValue,
+}: {
+  icon: string;
+  id: LandingFilterKey;
+  isOpen: boolean;
+  label: string;
+  onSelect: (value: TValue) => void;
+  onToggle: () => void;
+  options: Array<{ label: string; value: TValue }>;
+  selectedValue: TValue;
+}) {
+  const selectedOption =
+    options.find((option) => option.value === selectedValue) ?? options[0];
+  const menuId = `landing-${id}-menu`;
+
+  return (
+    <div className="landing-filter-menu">
+      <button
+        aria-expanded={isOpen}
+        aria-controls={menuId}
+        aria-label={label}
+        className="landing-filter-pill"
+        type="button"
+        onClick={onToggle}
+      >
+        <span aria-hidden="true">{icon}</span>
+        <strong>{selectedOption?.label}</strong>
+      </button>
+      {isOpen ? (
+        <div className="landing-filter-popover" id={menuId} role="menu">
+          {options.map((option) => (
+            <button
+              className="landing-filter-option"
+              data-selected={option.value === selectedValue ? "true" : "false"}
+              key={`${id}-${option.value}`}
+              onClick={() => onSelect(option.value)}
+              role="menuitemradio"
+              type="button"
+              aria-checked={option.value === selectedValue}
+            >
+              <span aria-hidden="true">{icon}</span>
+              <strong>{option.label}</strong>
+              <small aria-hidden="true">✓</small>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

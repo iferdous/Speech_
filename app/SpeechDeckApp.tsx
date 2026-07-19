@@ -882,72 +882,74 @@ function RollScreen({
             aria-label="Close topic slot"
           />
 
-          <SlotMachine
-            muted={muted}
-            onSpin={onSpin}
-            onToggleMute={onToggleMute}
-            slot={slot}
-            spinsLeft={spinsLeft}
-          />
+          <div className="slot-scroll-stage">
+            <SlotMachine
+              muted={muted}
+              onSpin={onSpin}
+              onToggleMute={onToggleMute}
+              slot={slot}
+              spinsLeft={spinsLeft}
+            />
 
-          <div className="slot-controls" aria-label="Slot machine controls">
-            <label className="slot-pill-control">
-              Time
-              <select
-                value={duration}
-                onChange={(event) => onDurationChange(Number(event.target.value))}
-              >
-                <option value={30}>0:30</option>
-                <option value={60}>1:00</option>
-                <option value={90}>1:30</option>
-                <option value={120}>2:00</option>
-                <option value={180}>3:00</option>
-              </select>
-            </label>
-            <label className="slot-pill-control">
-              Difficulty
-              <select
-                value={difficultyFilter}
-                onChange={(event) =>
-                  onDifficultyFilterChange(event.target.value as DifficultyFilter)
-                }
-              >
-                <option value="Any">Any</option>
-                {SLOT_DIFFICULTIES.map((difficulty) => (
-                  <option key={difficulty} value={difficulty}>
-                    {difficulty}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="slot-pill-control">
-              Category
-              <select
-                value={categoryFilter}
-                onChange={(event) =>
-                  onCategoryFilterChange(event.target.value as CategoryFilter)
-                }
-              >
-                <option value="Any">Any</option>
-                {SLOT_CATEGORIES.map((category) => (
-                  <option key={category} value={category}>
-                    {SLOT_CATEGORY_META[category].label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="slot-controls" aria-label="Slot machine controls">
+              <label className="slot-pill-control">
+                Time
+                <select
+                  value={duration}
+                  onChange={(event) => onDurationChange(Number(event.target.value))}
+                >
+                  <option value={30}>0:30</option>
+                  <option value={60}>1:00</option>
+                  <option value={90}>1:30</option>
+                  <option value={120}>2:00</option>
+                  <option value={180}>3:00</option>
+                </select>
+              </label>
+              <label className="slot-pill-control">
+                Difficulty
+                <select
+                  value={difficultyFilter}
+                  onChange={(event) =>
+                    onDifficultyFilterChange(event.target.value as DifficultyFilter)
+                  }
+                >
+                  <option value="Any">Any</option>
+                  {SLOT_DIFFICULTIES.map((difficulty) => (
+                    <option key={difficulty} value={difficulty}>
+                      {difficulty}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="slot-pill-control">
+                Category
+                <select
+                  value={categoryFilter}
+                  onChange={(event) =>
+                    onCategoryFilterChange(event.target.value as CategoryFilter)
+                  }
+                >
+                  <option value="Any">Any</option>
+                  {SLOT_CATEGORIES.map((category) => (
+                    <option key={category} value={category}>
+                      {SLOT_CATEGORY_META[category].label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {hasRolled && activeTopic && !slot.spinning ? (
+              <section className="slot-topic-reveal" aria-live="polite">
+                <p>{activeTopic.category}</p>
+                <h1>{activeTopic.prompt}</h1>
+                <span>{activeTopic.trains}</span>
+                <button className="primary-pill" type="button" onClick={onStart}>
+                  Start timer →
+                </button>
+              </section>
+            ) : null}
           </div>
-
-          {hasRolled && activeTopic && !slot.spinning ? (
-            <section className="slot-topic-reveal" aria-live="polite">
-              <p>{activeTopic.category}</p>
-              <h1>{activeTopic.prompt}</h1>
-              <span>{activeTopic.trains}</span>
-              <button className="primary-pill" type="button" onClick={onStart}>
-                Start timer →
-              </button>
-            </section>
-          ) : null}
         </section>
       ) : null}
     </section>
